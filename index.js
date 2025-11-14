@@ -6,7 +6,7 @@ app.use(express.json());
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
-// Guardar títulos reais por taskId
+// Guardar títulos reais por taskId (para comentários sem título)
 const titleCache = {};
 
 async function sendToSlack(text) {
@@ -29,37 +29,49 @@ app.post("/deskfy", async (req, res) => {
       data?.task?.id ||
       null;
 
-    const status = data?.status || "Sem status";
-
-    const tags = Array.isArray(data?.tags) ? data.tags : [];
-    const tagsList = tags.length > 0 ? tags.join(", ") : "Nenhuma tag";
-
     const taskUrl = taskId
       ? `https://app.deskfy.io/workflow/home?createRequest=&request=${taskId}`
       : null;
 
     // ------------------------------
-    // 🔥 TÍTULO — LÓGICA COMPLETA E ROBUSTA
+    // TÍTULO (com fallback e cache)
     // ------------------------------
 
-    // Tenta pegar título do Deskfy
     let rawTitle = data?.title || data?.taskTitle || "";
 
-    // Se vier título válido → salva no cache
     if (rawTitle.trim()) {
       titleCache[taskId] = rawTitle.trim();
     }
 
-    // Determina título final
+    // Título final robusto:
     const title =
-      (rawTitle.trim() ||
-      titleCache[taskId] ||  // título já salvo de outro evento
-      (taskId ? `Tarefa ${taskId}` : "Sem título"));  // <-- USAR ID COMO TÍTULO
+      rawTitle.trim() ||
+      titleCache[taskId] ||
+      (taskId ? `Tarefa ${taskId}` : "Sem título");
 
     const lowerTitle = title.toLowerCase();
 
     // ------------------------------
-    // ❌ FILTRO DE GEO PROIBIDA
+    // TAGS
+    // ------------------------------
+
+    const tags = Array.isArray(data?.tags) ? data.tags : [];
+    const tagsList = tags.length > 0 ? tags.join(", ") : "Nenhuma tag";
+
+    // ------------------------------
+    // STATUS + TRADUÇÕES
+    // ------------------------------
+
+    const status = data?.status || "Sem status";
+
+    const statusMap = {
+      WAITING_USER_ADJUST: "Aguardando ajustes"
+    };
+
+    const statusTranslated = statusMap[status] || status;
+
+    // ------------------------------
+    // ❌ FILTRO: BLOQUEAR CERTAS GEOS
     // ------------------------------
 
     const forbiddenStrings = ["geo co", "geo sp", "geo mg", "cdd"];
@@ -69,7 +81,7 @@ app.post("/deskfy", async (req, res) => {
     );
 
     if (containsForbidden) {
-      console.log("Ignorado por filtro de GEO proibida →", title);
+      console.log("Ignorado por GEO proibida →", title);
       return res.status(200).json({ ignored: "geo_forbidden" });
     }
 
@@ -77,30 +89,33 @@ app.post("/deskfy", async (req, res) => {
     // EVENTOS
     // ------------------------------
 
+    // 🆕 NOVA TAREFA
     if (event === "NEW_TASK") {
       await sendToSlack(
         [
           "🆕 *Nova tarefa criada!*",
           `*Título:* ${title}`,
-          `*Status:* ${status}`,
+          `*Status:* ${statusTranslated}`,
           `*Tags:* ${tagsList}`,
           taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
         ].join("\n")
       );
     }
 
+    // 🔄 ATUALIZAÇÃO DE TAREFA
     if (event === "UPDATE_TASK") {
       await sendToSlack(
         [
           "🔄 *Tarefa atualizada!*",
           `*Título:* ${title}`,
-          `*Novo status:* ${status}`,
+          `*Novo status:* ${statusTranslated}`,
           `*Tags:* ${tagsList}`,
           taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
         ].join("\n")
       );
     }
 
+    // 💬 NOVO COMENTÁRIO
     if (event === "NEW_TASK_COMMENT") {
       const author = data?.author?.name || "Alguém";
       const comment = data?.comment || "(sem conteúdo)";
@@ -108,7 +123,7 @@ app.post("/deskfy", async (req, res) => {
       await sendToSlack(
         [
           "💬 *Novo comentário em tarefa!*",
-          `*Título:* ${title}`,
+          `*Título:* ${title}`,   // título REAL garantido
           `*Autor:* ${author}`,
           `*Comentário:* ${comment}`,
           `*Tags:* ${tagsList}`,
@@ -117,6 +132,7 @@ app.post("/deskfy", async (req, res) => {
       );
     }
 
+    // 📝 BRIEFING ATUALIZADO
     if (event === "UPDATE_BRIEFING") {
       await sendToSlack(
         [
