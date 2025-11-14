@@ -142,10 +142,11 @@ app.post("/deskfy", async (req, res) => {
 
       const author = data?.author?.name || "Alguém";
 
-      // ❌ BLOQUEAR AUTORES ESPECÍFICOS
+      // ❌ BLOQUEAR AUTORES DEFINIDOS
       const blockedAuthors = [
         "thaynara moreira",
-        "luiz augusto albuquerque (printa)"
+        "luiz augusto albuquerque (printa)",
+        "designer/gráfica - caio otto (printa)"
       ];
 
       if (blockedAuthors.includes(author.toLowerCase())) {
