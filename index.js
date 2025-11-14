@@ -20,34 +20,45 @@ app.post("/deskfy", async (req, res) => {
     // CAMPOS PADRÃO
     // ------------------------------
 
-    // Título (Deskfy às vezes manda title, às vezes taskTitle)
     const rawTitle = data?.title || data?.taskTitle || "Sem título";
     const title = rawTitle.trim();
 
-    // Status
     const status = data?.status || "Sem status";
 
-    // Tags
     const tags = Array.isArray(data?.tags) ? data.tags : [];
     const tagsList = tags.length > 0 ? tags.join(", ") : "Nenhuma tag";
 
-    // ID da tarefa — Deskfy manda de formas diferentes
     const taskId =
       data?.id ||
       data?.taskId ||
       data?.task?.id ||
       null;
 
-    // Link correto
     const taskUrl = taskId
       ? `https://app.deskfy.io/workflow/home?createRequest=&request=${taskId}`
       : null;
 
     // ------------------------------
-    // FORMATAÇÕES POR EVENTO
+    // ❌ FILTRO NOVO (NÃO RECEBER GEO CO, GEO SP, GEO MINAS, CDD)
     // ------------------------------
 
-    // NOVA TAREFA
+    const forbiddenStrings = ["geo co", "geo sp", "geo minas", "cdd"];
+
+    const lowerTitle = title.toLowerCase();
+
+    const containsForbidden = forbiddenStrings.some((txt) =>
+      lowerTitle.includes(txt)
+    );
+
+    if (containsForbidden) {
+      console.log("Ignorado por filtro de GEO proibida →", title);
+      return res.status(200).json({ ignored: "geo_forbidden" });
+    }
+
+    // ------------------------------
+    // EVENTOS
+    // ------------------------------
+
     if (event === "NEW_TASK") {
       await sendToSlack(
         [
@@ -60,7 +71,6 @@ app.post("/deskfy", async (req, res) => {
       );
     }
 
-    // ATUALIZAÇÃO DE TAREFA
     if (event === "UPDATE_TASK") {
       await sendToSlack(
         [
@@ -73,7 +83,6 @@ app.post("/deskfy", async (req, res) => {
       );
     }
 
-    // NOVO COMENTÁRIO
     if (event === "NEW_TASK_COMMENT") {
       const author = data?.author?.name || "Alguém";
       const comment = data?.comment || "(sem conteúdo)";
@@ -90,7 +99,6 @@ app.post("/deskfy", async (req, res) => {
       );
     }
 
-    // BRIEFING ATUALIZADO
     if (event === "UPDATE_BRIEFING") {
       await sendToSlack(
         [
