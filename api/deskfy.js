@@ -1,18 +1,19 @@
-const { kv } = require('@vercel/kv');
+import { kv } from "@vercel/kv";
+import axios from "axios";
 
-module.exports = async (req, res) => {
+export default async function handler(req, res) {
   try {
-    // Garante que o body esteja em objeto JS
+    // Se vier string, converte pra JSON
     let data = req.body;
     if (typeof data === "string") {
       try {
         data = JSON.parse(data);
-      } catch (e) {
-        console.error("Erro ao parsear body:", e);
+      } catch (error) {
+        console.error("Erro ao parsear JSON:", error);
       }
     }
 
-    // 1. Extrair campos importantes (ajuste os nomes conforme o payload real do Deskfy)
+    // Extrai campos do Deskfy
     const jobId = data?.id || data?.job_id || null;
     const rawTitle = data?.name || data?.title || "";
     const status = data?.status || "";
@@ -20,28 +21,27 @@ module.exports = async (req, res) => {
     const message = data?.message || "";
     const action = data?.event || "update";
 
-    // 2. Filtros de GEO (bloqueados)
+    // Filtros de GEO
     const geoBloqueados = ["GEO CO", "GEO SP", "GEO MG", "CDD"];
-    if (geoBloqueados.some(g => rawTitle.includes(g))) {
+    if (geoBloqueados.some((g) => rawTitle.includes(g))) {
       return res.status(200).json({ ok: true, reason: "GEO bloqueado" });
     }
 
-    // 3. Bloqueio de autores específicos
+    // Bloqueio de autores
     const bloqueados = [
       "Designer - Thaynara Moreira",
       "Luiz Augusto Albuquerque (Printa)",
-      "Designer/Gráfica - Caio Otto (Printa)"
+      "Designer/Gráfica - Caio Otto (Printa)",
     ];
-    if (bloqueados.some(n => designer.includes(n))) {
+    if (bloqueados.some((n) => designer.includes(n))) {
       return res.status(200).json({ ok: true, reason: "Autor bloqueado" });
     }
 
-    // 4. Título bonitinho
+    // Título tratado
     const titulo =
-      (rawTitle && rawTitle.trim()) ||
-      (jobId ? `Tarefa #${jobId}` : "Tarefa sem título");
+      rawTitle?.trim() || (jobId ? `Tarefa #${jobId}` : "Tarefa sem título");
 
-    // 5. Traduzir status
+    // Tradução de status
     const statusTraduzido =
       {
         WAITING_USER_ADJUST: "Aguardando ajustes",
@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
         DELIVERED: "Entregue",
       }[status] || status || "Sem status";
 
-    // 6. Montar texto padrão para o canal de log
+    // Mensagem de log
     const slackText = [
       `*${titulo}*`,
       jobId ? `ID: ${jobId}` : null,
@@ -63,20 +63,22 @@ module.exports = async (req, res) => {
       .filter(Boolean)
       .join("\n");
 
-    // 7. Enviar mensagem de LOG para #org-cardapios
-    await fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    // Envia para o canal de LOG
+    await axios.post(
+      "https://slack.com/api/chat.postMessage",
+      {
         channel: process.env.SLACK_CHANNEL_ORG_CARDAPIOS,
         text: slackText,
-      }),
-    });
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-    // 8. Criar/atualizar CARD na lista (canal de cards)
+    // Envia/atualiza card na lista
     await syncListCard({
       jobId,
       titulo,
@@ -87,24 +89,25 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({ ok: true });
   } catch (err) {
-    console.error(err);
+    console.error("Erro geral:", err);
     return res.status(500).json({ error: err.message });
   }
-};
+}
 
-// ==========================
-// Função que cuida da "lista"
-// ==========================
+// ===============================
+// CARD DA LISTA (CRUD by ID)
+// ===============================
 async function syncListCard({ jobId, titulo, status, designer, message }) {
   if (!jobId) {
-    console.log("Sem jobId, não vou criar/atualizar card.");
+    console.log("Sem jobId, não criar/atualizar card.");
     return;
   }
 
   const key = `deskfy:${jobId}`;
+
   const existing = await kv.get(key);
 
-  const text = [
+  const cardText = [
     `*${titulo}*`,
     `ID: ${jobId}`,
     `Status: *${status}*`,
@@ -115,44 +118,50 @@ async function syncListCard({ jobId, titulo, status, designer, message }) {
     .join("\n");
 
   if (!existing) {
-    // -------- CARD NOVO --------
-    const response = await fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+    // Criar card
+    const resp = await axios.post(
+      "https://slack.com/api/chat.postMessage",
+      {
         channel: process.env.SLACK_CHANNEL_LISTA,
-        text,
-      }),
-    }).then((r) => r.json());
+        text: cardText,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-    if (!response.ok) {
-      console.error("Erro ao criar card na lista:", response);
+    const created = resp.data;
+
+    if (!created.ok) {
+      console.error("Erro ao criar card:", created);
       return;
     }
 
-    // Salva para atualizar depois (canal + ts da mensagem)
+    // Salva onde está o card
     await kv.set(key, {
       channel: process.env.SLACK_CHANNEL_LISTA,
-      ts: response.ts,
+      ts: created.ts,
     });
   } else {
-    // -------- ATUALIZAR CARD EXISTENTE --------
+    // Atualizar card
     const { channel, ts } = existing;
 
-    await fetch("https://slack.com/api/chat.update", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        channel: channel || process.env.SLACK_CHANNEL_LISTA,
+    await axios.post(
+      "https://slack.com/api/chat.update",
+      {
+        channel,
         ts,
-        text,
-      }),
-    });
+        text: cardText,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
   }
 }
