@@ -6,7 +6,7 @@ app.use(express.json());
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
-// Guardar títulos reais por taskId (para comentários sem título)
+// Cache de títulos para comentários sem título
 const titleCache = {};
 
 async function sendToSlack(text) {
@@ -34,7 +34,7 @@ app.post("/deskfy", async (req, res) => {
       : null;
 
     // ------------------------------
-    // TÍTULO (com fallback e cache)
+    // TÍTULO COM CACHE + ID COMO BACKUP
     // ------------------------------
 
     let rawTitle = data?.title || data?.taskTitle || "";
@@ -64,7 +64,30 @@ app.post("/deskfy", async (req, res) => {
     const status = data?.status || "Sem status";
 
     const statusMap = {
-      WAITING_USER_ADJUST: "Aguardando ajustes"
+      INBOX: "Entrada",
+      PROGRESS: "Em produção",
+      REVIEW: "Em revisão",
+      APPROVED: "Aprovado",
+      DONE: "Concluído",
+      ARCHIVED: "Arquivado",
+      CANCELED: "Cancelado",
+      STANDBY: "Em espera",
+
+      WAITING_USER_ADJUST: "Aguardando ajustes",
+      AWAITING_USER_APPROVAL: "Aguardando aprovação do cliente",
+      AWAITING_USER_FEEDBACK: "Aguardando feedback do cliente",
+
+      DESIGNING: "Design em andamento",
+      REVISION_DESIGN: "Revisão interna",
+      SENT_TO_REVIEW: "Enviado para revisão",
+      PENDING_INFORMATION: "Aguardando informações",
+      EDITING: "Ajustando arte",
+
+      ON_HOLD: "Pausado",
+      REJECTED: "Rejeitado",
+      RETURNED: "Devolvido ao designer",
+      NEEDS_APPROVAL: "Requer aprovação",
+      QUALITY_CHECK: "Controle de qualidade"
     };
 
     const statusTranslated = statusMap[status] || status;
@@ -117,10 +140,9 @@ app.post("/deskfy", async (req, res) => {
     // 💬 NOVO COMENTÁRIO
     if (event === "NEW_TASK_COMMENT") {
 
-      // ❌ NOVO FILTRO — NÃO MOSTRAR COMENTÁRIO DA THAYNARA MOREIRA
+      // ❌ BLOQUEAR COMENTÁRIOS DE THAYNARA
       const author = data?.author?.name || "Alguém";
-
-      if (author.toLowerCase() === "thaynara moreira".toLowerCase()) {
+      if (author.toLowerCase() === "thaynara moreira") {
         console.log("Ignorado: comentário de Thaynara Moreira");
         return res.status(200).json({ ignored: "comment_blocked_thaynara" });
       }
