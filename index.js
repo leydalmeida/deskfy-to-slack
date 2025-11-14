@@ -21,7 +21,7 @@ app.post("/deskfy", async (req, res) => {
     // CAMPOS COMUNS
     // ------------------------------
 
-    // Título
+    // Título bruto + tratado
     const rawTitle = data?.title || "";
     const title = rawTitle.trim() || "Sem título";
 
@@ -45,43 +45,40 @@ app.post("/deskfy", async (req, res) => {
       : null;
 
     // ------------------------------
-    // 🔥 FILTROS DE TÍTULO
+    // 🔥 FILTRAGEM POR GEO NO TÍTULO
     // ------------------------------
 
     const lowerTitle = title.toLowerCase();
 
-    // 1. Bloquear títulos "sem título"
-    if (lowerTitle === "sem título") {
-      console.log("Ignorado: título vazio ou 'sem título'");
-      return res.status(200).json({ ignored: "sem_titulo" });
-    }
+    // GEOs permitidas
+    const allowedPrefixes = [
+      "[geo no]",
+      "[geo ne]",
+      "[geo rj]",
+      "[geo sul]"
+    ];
 
-    // 2. Bloquear títulos que começam com GEO SP / MG / CO
-    const blockedPrefixes = ["[geo sp]", "[geo mg]", "[geo co]"];
-    const startsWithBlockedGeo = blockedPrefixes.some((prefix) =>
+    const startsWithAllowedGeo = allowedPrefixes.some((prefix) =>
       lowerTitle.startsWith(prefix)
     );
 
-    if (startsWithBlockedGeo) {
-      console.log("Ignorado: GEO bloqueada no título → ", title);
-      return res.status(200).json({ ignored: "geo_bloqueada" });
+    // Se o título NÃO começar com uma GEO permitida → ignora tudo
+    if (!startsWithAllowedGeo) {
+      console.log("Ignorado: GEO não permitida no título →", title);
+      return res.status(200).json({ ignored: "geo_nao_permitida" });
     }
 
     // ------------------------------
-    // EVENTOS
+    // IGNORAR COMPLETAMENTE NEW_TASK
     // ------------------------------
-
     if (event === "NEW_TASK") {
-      await sendToSlack(
-        [
-          "🆕 *Nova tarefa criada!*",
-          `*️⃣ *Título:* ${title}`,
-          `📌 *Status:* ${status}`,
-          `🏷️ *Tags:* ${tagsList}`,
-          taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
-        ].join("\n")
-      );
+      console.log("Ignorado: evento NEW_TASK (Nova tarefa criada)");
+      return res.status(200).json({ ignored: "new_task" });
     }
+
+    // ------------------------------
+    // EVENTOS QUE VAMOS ENVIAR
+    // ------------------------------
 
     if (event === "UPDATE_TASK") {
       await sendToSlack(
@@ -98,13 +95,13 @@ app.post("/deskfy", async (req, res) => {
     if (event === "NEW_TASK_COMMENT") {
       const author = data?.author?.name || "Alguém";
       const comment = data?.comment || "(comentário vazio)";
-      const taskTitle = data?.taskTitle?.trim() || title;
 
       await sendToSlack(
         [
-          `💬 *Novo comentário em:* ${taskTitle}`,
+          `💬 *Novo comentário em:* ${title}`,
           `👤 *Autor:* ${author}`,
           `📝 *Comentário:* ${comment}`,
+          `🏷️ *Tags:* ${tagsList}`,
           taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
         ].join("\n")
       );
@@ -115,6 +112,7 @@ app.post("/deskfy", async (req, res) => {
         [
           "📝 *Briefing atualizado!*",
           `*️⃣ *Tarefa:* ${title}`,
+          `🏷️ *Tags:* ${tagsList}`,
           taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
         ].join("\n")
       );
