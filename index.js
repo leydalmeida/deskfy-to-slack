@@ -33,16 +33,16 @@ app.post("/deskfy", async (req, res) => {
         ? data.tags.join(", ")
         : "Nenhuma tag";
 
-    // Task ID (cobrir todas as possibilidades do Deskfy)
+    // ID da tarefa (cobrindo todas as possibilidades do Deskfy)
     const taskId =
       data?.id ||
       data?.taskId ||
       data?.task?.id ||
       null;
 
-    // Link da tarefa
+    // Novo link oficial da tarefa (com ID no final)
     const taskUrl = taskId
-      ? `https://app.deskfy.io/tasks/${taskId}`
+      ? `https://app.deskfy.io/workflow/home?createRequest=&request=${taskId}`
       : null;
 
     // ------------------------------
