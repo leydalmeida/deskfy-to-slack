@@ -140,11 +140,17 @@ app.post("/deskfy", async (req, res) => {
     // 💬 NOVO COMENTÁRIO
     if (event === "NEW_TASK_COMMENT") {
 
-      // ❌ BLOQUEAR COMENTÁRIOS DE THAYNARA
       const author = data?.author?.name || "Alguém";
-      if (author.toLowerCase() === "thaynara moreira") {
-        console.log("Ignorado: comentário de Thaynara Moreira");
-        return res.status(200).json({ ignored: "comment_blocked_thaynara" });
+
+      // ❌ BLOQUEAR AUTORES ESPECÍFICOS
+      const blockedAuthors = [
+        "thaynara moreira",
+        "luiz augusto albuquerque (printa)"
+      ];
+
+      if (blockedAuthors.includes(author.toLowerCase())) {
+        console.log("Ignorado: comentário de autor bloqueado →", author);
+        return res.status(200).json({ ignored: "comment_blocked_author" });
       }
 
       const comment = data?.comment || "(sem conteúdo)";
