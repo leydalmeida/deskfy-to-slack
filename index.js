@@ -17,24 +17,28 @@ app.post("/deskfy", async (req, res) => {
   console.log("Webhook recebido:", event);
 
   try {
-    // helper para extrair tipo de cardápio a partir das tags
-    const tags = Array.isArray(data?.tags) ? data.tags : [];
-    const menuType =
-      tags.length > 0 ? tags.join(", ") : "Tipo de cardápio não informado";
+    // ------------------------------
+    // Campos comuns
+    // ------------------------------
+    const title = data?.title?.trim() || "Sem título";
+    const status = data?.status || "Sem status";
+
+    // Tags (antes era "tipo de cardápio")
+    const tagsList =
+      Array.isArray(data?.tags) && data.tags.length > 0
+        ? data.tags.join(", ")
+        : "Nenhuma tag";
 
     // ------------------------------
     // EVENTO: NOVA TAREFA (briefing)
     // ------------------------------
     if (event === "NEW_TASK") {
-      const title = data?.title || "Sem título";
-      const status = data?.status || "Sem status";
-
       await sendToSlack(
         [
           "🆕 *Nova tarefa criada!*",
           `*️⃣ *Título:* ${title}`,
           `📌 *Status:* ${status}`,
-          `🍽️ *Tipo de cardápio:* ${menuType}`
+          `🏷️ *Tags:* ${tagsList}`
         ].join("\n")
       );
     }
@@ -43,15 +47,12 @@ app.post("/deskfy", async (req, res) => {
     // EVENTO: ALTERAÇÃO EM TAREFA EXISTENTE
     // ---------------------------------------
     if (event === "UPDATE_TASK") {
-      const title = data?.title || "Sem título";
-      const status = data?.status || "Sem status";
-
       await sendToSlack(
         [
           "🔄 *Tarefa atualizada!*",
           `*️⃣ *Título:* ${title}`,
           `📌 *Novo status:* ${status}`,
-          `🍽️ *Tipo de cardápio:* ${menuType}`
+          `🏷️ *Tags:* ${tagsList}`
         ].join("\n")
       );
     }
@@ -61,23 +62,22 @@ app.post("/deskfy", async (req, res) => {
     // ------------------------------
     if (event === "NEW_TASK_COMMENT") {
       const author = data?.author?.name || "Alguém";
-      const title = data?.taskTitle || "Tarefa";
+      const taskTitle = data?.taskTitle?.trim() || title || "Tarefa";
+      const comment = data?.comment || "(comentário vazio)";
 
       await sendToSlack(
         [
-          `💬 *Novo comentário em:* ${title}`,
+          `💬 *Novo comentário em:* ${taskTitle}`,
           `👤 *Autor:* ${author}`,
-          `📝 *Comentário:* ${data?.comment || "(vazio)"}`
+          `📝 *Comentário:* ${comment}`
         ].join("\n")
       );
     }
 
     // ------------------------------
-    // BRIEFING ALTERADO
+    // BRIEFING ATUALIZADO
     // ------------------------------
     if (event === "UPDATE_BRIEFING") {
-      const title = data?.title || "Sem título";
-
       await sendToSlack(
         `📝 *Briefing atualizado!*\n*️⃣ *Tarefa:* ${title}`
       );
