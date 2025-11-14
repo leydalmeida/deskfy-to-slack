@@ -22,7 +22,7 @@ app.post("/deskfy", async (req, res) => {
     // ------------------------------
 
     // Título bruto + tratado
-    // Agora usamos taskTitle como fallback pra suportar NEW_TASK_COMMENT
+    // Usa title e, se não tiver, taskTitle (comentário costuma usar taskTitle)
     const rawTitle = data?.title || data?.taskTitle || "";
     const title = rawTitle.trim() || "Sem título";
 
@@ -45,13 +45,20 @@ app.post("/deskfy", async (req, res) => {
       ? `https://app.deskfy.io/workflow/home?createRequest=&request=${taskId}`
       : null;
 
-    // ------------------------------
-    // 🔥 FILTRAGEM POR GEO NO TÍTULO
-    // ------------------------------
-
     const lowerTitle = title.toLowerCase();
 
-    // GEOs permitidas
+    // ------------------------------
+    // 1) BLOQUEAR "SEM TÍTULO" APENAS PARA EVENTOS DE STATUS/BRIEFING
+    //    (NÃO bloqueia comentários)
+    // ------------------------------
+    if (lowerTitle === "sem título" && event !== "NEW_TASK_COMMENT") {
+      console.log("Ignorado: título 'Sem título' para evento não-comentário");
+      return res.status(200).json({ ignored: "sem_titulo" });
+    }
+
+    // ------------------------------
+    // 2) FILTRO POR GEO NO TÍTULO (VALE PARA TODO MUNDO, INCLUSIVE COMENTÁRIO)
+    // ------------------------------
     const allowedPrefixes = [
       "[geo no]",
       "[geo ne]",
@@ -63,14 +70,13 @@ app.post("/deskfy", async (req, res) => {
       lowerTitle.startsWith(prefix)
     );
 
-    // Se o título NÃO começar com uma GEO permitida → ignora tudo
     if (!startsWithAllowedGeo) {
       console.log("Ignorado: GEO não permitida no título →", title);
       return res.status(200).json({ ignored: "geo_nao_permitida" });
     }
 
     // ------------------------------
-    // IGNORAR COMPLETAMENTE NEW_TASK
+    // 3) IGNORAR COMPLETAMENTE NEW_TASK
     // ------------------------------
     if (event === "NEW_TASK") {
       console.log("Ignorado: evento NEW_TASK (Nova tarefa criada)");
@@ -78,7 +84,7 @@ app.post("/deskfy", async (req, res) => {
     }
 
     // ------------------------------
-    // EVENTOS QUE VAMOS ENVIAR
+    // 4) EVENTOS QUE VAMOS ENVIAR
     // ------------------------------
 
     if (event === "UPDATE_TASK") {
