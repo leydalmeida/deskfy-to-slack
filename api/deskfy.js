@@ -1,24 +1,51 @@
-import { kv } from "@vercel/kv";
 import axios from "axios";
 
+/**
+ * Função auxiliar para ler/gravar no Redis via REST API (Upstash).
+ */
+const redis = {
+  async get(key) {
+    const url = `${process.env.UPSTASH_REDIS_REST_API_URL}/get/${key}`;
+    const resp = await axios.get(url, {
+      headers: {
+        Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_API_TOKEN}`,
+      },
+    });
+    return resp.data.result ? JSON.parse(resp.data.result) : null;
+  },
+
+  async set(key, value) {
+    const url = `${process.env.UPSTASH_REDIS_REST_API_URL}/set/${key}`;
+    await axios.post(
+      url,
+      JSON.stringify(value),
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.UPSTASH_REDIS_REST_API_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+  },
+};
 
 export default async function handler(req, res) {
   try {
-    // Se vier string, converte pra JSON
     let data = req.body;
-    if (typeof data === "string") {
+
+    if (!data || Object.keys(data).length === 0) {
       try {
-        data = JSON.parse(data);
-      } catch (error) {
-        console.error("Erro ao parsear JSON:", error);
+        data = JSON.parse(req.body);
+      } catch (e) {
+        // ignora
       }
     }
 
-    // Extrai campos do Deskfy
+    // Campos do Deskfy
     const jobId = data?.id || data?.job_id || null;
     const rawTitle = data?.name || data?.title || "";
-    const status = data?.status || "";
     const designer = data?.author_name || "";
+    const status = data?.status || "";
     const message = data?.message || "";
     const action = data?.event || "update";
 
@@ -38,7 +65,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, reason: "Autor bloqueado" });
     }
 
-    // Título tratado
+    // Titulo normalizado
     const titulo =
       rawTitle?.trim() || (jobId ? `Tarefa #${jobId}` : "Tarefa sem título");
 
@@ -52,8 +79,8 @@ export default async function handler(req, res) {
         DELIVERED: "Entregue",
       }[status] || status || "Sem status";
 
-    // Mensagem de log
-    const slackText = [
+    // Mensagem de log no canal principal
+    const logText = [
       `*${titulo}*`,
       jobId ? `ID: ${jobId}` : null,
       `Status: *${statusTraduzido}*`,
@@ -64,12 +91,11 @@ export default async function handler(req, res) {
       .filter(Boolean)
       .join("\n");
 
-    // Envia para o canal de LOG
     await axios.post(
       "https://slack.com/api/chat.postMessage",
       {
         channel: process.env.SLACK_CHANNEL_ORG_CARDAPIOS,
-        text: slackText,
+        text: logText,
       },
       {
         headers: {
@@ -79,39 +105,36 @@ export default async function handler(req, res) {
       }
     );
 
-    // Envia/atualiza card na lista
+    // Agora vamos criar/atualizar o card de lista
     await syncListCard({
       jobId,
       titulo,
-      status: statusTraduzido,
+      statusTraduzido,
       designer,
       message,
     });
 
     return res.status(200).json({ ok: true });
   } catch (err) {
-    console.error("Erro geral:", err);
+    console.error("Erro no handler:", err);
     return res.status(500).json({ error: err.message });
   }
 }
 
-// ===============================
-// CARD DA LISTA (CRUD by ID)
-// ===============================
-async function syncListCard({ jobId, titulo, status, designer, message }) {
-  if (!jobId) {
-    console.log("Sem jobId, não criar/atualizar card.");
-    return;
-  }
+/**
+ * Criar/atualizar card na lista
+ */
+async function syncListCard({ jobId, titulo, statusTraduzido, designer, message }) {
+  if (!jobId) return;
 
   const key = `deskfy:${jobId}`;
 
-  const existing = await kv.get(key);
+  const existing = await redis.get(key);
 
   const cardText = [
     `*${titulo}*`,
     `ID: ${jobId}`,
-    `Status: *${status}*`,
+    `Status: *${statusTraduzido}*`,
     designer ? `Designer: ${designer}` : null,
     `Mensagem: ${message || "-"}`,
   ]
@@ -119,7 +142,7 @@ async function syncListCard({ jobId, titulo, status, designer, message }) {
     .join("\n");
 
   if (!existing) {
-    // Criar card
+    // Criar card novo
     const resp = await axios.post(
       "https://slack.com/api/chat.postMessage",
       {
@@ -134,35 +157,27 @@ async function syncListCard({ jobId, titulo, status, designer, message }) {
       }
     );
 
-    const created = resp.data;
-
-    if (!created.ok) {
-      console.error("Erro ao criar card:", created);
-      return;
-    }
-
-    // Salva onde está o card
-    await kv.set(key, {
+    await redis.set(key, {
       channel: process.env.SLACK_CHANNEL_LISTA,
-      ts: created.ts,
+      ts: resp.data.ts,
     });
-  } else {
-    // Atualizar card
-    const { channel, ts } = existing;
 
-    await axios.post(
-      "https://slack.com/api/chat.update",
-      {
-        channel,
-        ts,
-        text: cardText,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    return;
   }
+
+  // Atualizar card existente
+  await axios.post(
+    "https://slack.com/api/chat.update",
+    {
+      channel: existing.channel,
+      ts: existing.ts,
+      text: cardText,
+    },
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
 }
