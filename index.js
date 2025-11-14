@@ -22,7 +22,8 @@ app.post("/deskfy", async (req, res) => {
     // ------------------------------
 
     // Título bruto + tratado
-    const rawTitle = data?.title || "";
+    // Agora usamos taskTitle como fallback pra suportar NEW_TASK_COMMENT
+    const rawTitle = data?.title || data?.taskTitle || "";
     const title = rawTitle.trim() || "Sem título";
 
     // Status
