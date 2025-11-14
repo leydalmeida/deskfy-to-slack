@@ -142,16 +142,10 @@ app.post("/deskfy", async (req, res) => {
 
       const author = data?.author?.name || "Alguém";
 
-      // ❌ BLOQUEAR AUTORES DEFINIDOS
-      const blockedAuthors = [
-        "thaynara moreira",
-        "luiz augusto albuquerque (printa)",
-        "designer/gráfica - caio otto (printa)"
-      ];
-
-      if (blockedAuthors.includes(author.toLowerCase())) {
-        console.log("Ignorado: comentário de autor bloqueado →", author);
-        return res.status(200).json({ ignored: "comment_blocked_author" });
+      // ❌ BLOQUEAR QUALQUER AUTOR COM "(Printa)" NO NOME
+      if (author.toLowerCase().includes("(printa)")) {
+        console.log("Ignorado: comentário de autor bloqueado (Printa) →", author);
+        return res.status(200).json({ ignored: "comment_blocked_printa" });
       }
 
       const comment = data?.comment || "(sem conteúdo)";
@@ -184,8 +178,4 @@ app.post("/deskfy", async (req, res) => {
 
   } catch (error) {
     console.error("Erro ao enviar pro Slack:", error);
-    res.status(500).json({ error: "Erro ao enviar pro Slack" });
-  }
-});
-
-app.listen(3000, () => console.log("Servidor rodando na porta 3000."));
+    res.status(
