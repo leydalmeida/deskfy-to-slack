@@ -43,7 +43,6 @@ app.post("/deskfy", async (req, res) => {
       titleCache[taskId] = rawTitle.trim();
     }
 
-    // Título final robusto:
     const title =
       rawTitle.trim() ||
       titleCache[taskId] ||
@@ -71,7 +70,7 @@ app.post("/deskfy", async (req, res) => {
     const statusTranslated = statusMap[status] || status;
 
     // ------------------------------
-    // ❌ FILTRO: BLOQUEAR CERTAS GEOS
+    // ❌ FILTRO: BLOQUEAR GEOS PROIBIDAS
     // ------------------------------
 
     const forbiddenStrings = ["geo co", "geo sp", "geo mg", "cdd"];
@@ -117,13 +116,21 @@ app.post("/deskfy", async (req, res) => {
 
     // 💬 NOVO COMENTÁRIO
     if (event === "NEW_TASK_COMMENT") {
+
+      // ❌ NOVO FILTRO — NÃO MOSTRAR COMENTÁRIO DA THAYNARA MOREIRA
       const author = data?.author?.name || "Alguém";
+
+      if (author.toLowerCase() === "thaynara moreira".toLowerCase()) {
+        console.log("Ignorado: comentário de Thaynara Moreira");
+        return res.status(200).json({ ignored: "comment_blocked_thaynara" });
+      }
+
       const comment = data?.comment || "(sem conteúdo)";
 
       await sendToSlack(
         [
           "💬 *Novo comentário em tarefa!*",
-          `*Título:* ${title}`,   // título REAL garantido
+          `*Título:* ${title}`,
           `*Autor:* ${author}`,
           `*Comentário:* ${comment}`,
           `*Tags:* ${tagsList}`,
