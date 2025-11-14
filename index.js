@@ -17,13 +17,25 @@ app.post("/deskfy", async (req, res) => {
   console.log("Webhook recebido:", event);
 
   try {
+    // helper para extrair tipo de cardápio a partir das tags
+    const tags = Array.isArray(data?.tags) ? data.tags : [];
+    const menuType =
+      tags.length > 0 ? tags.join(", ") : "Tipo de cardápio não informado";
+
     // ------------------------------
     // EVENTO: NOVA TAREFA (briefing)
     // ------------------------------
     if (event === "NEW_TASK") {
       const title = data?.title || "Sem título";
+      const status = data?.status || "Sem status";
+
       await sendToSlack(
-        `🆕 *Nova tarefa criada!*\n*️⃣ *Título:* ${title}\n📌 *Status:* ${data?.status}`
+        [
+          "🆕 *Nova tarefa criada!*",
+          `*️⃣ *Título:* ${title}`,
+          `📌 *Status:* ${status}`,
+          `🍽️ *Tipo de cardápio:* ${menuType}`
+        ].join("\n")
       );
     }
 
@@ -35,7 +47,12 @@ app.post("/deskfy", async (req, res) => {
       const status = data?.status || "Sem status";
 
       await sendToSlack(
-        `🔄 *Tarefa atualizada!*\n*️⃣ *Título:* ${title}\n📌 *Novo status:* ${status}`
+        [
+          "🔄 *Tarefa atualizada!*",
+          `*️⃣ *Título:* ${title}`,
+          `📌 *Novo status:* ${status}`,
+          `🍽️ *Tipo de cardápio:* ${menuType}`
+        ].join("\n")
       );
     }
 
@@ -47,7 +64,11 @@ app.post("/deskfy", async (req, res) => {
       const title = data?.taskTitle || "Tarefa";
 
       await sendToSlack(
-        `💬 *Novo comentário em:* ${title}\n👤 *Autor:* ${author}\n📝 *Comentário:* ${data?.comment}`
+        [
+          `💬 *Novo comentário em:* ${title}`,
+          `👤 *Autor:* ${author}`,
+          `📝 *Comentário:* ${data?.comment || "(vazio)"}`
+        ].join("\n")
       );
     }
 
