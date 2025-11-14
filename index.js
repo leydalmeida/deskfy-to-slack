@@ -6,7 +6,7 @@ app.use(express.json());
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
-// Função helper para enviar mensagem para o Slack
+// Enviar mensagem ao Slack
 async function sendToSlack(text) {
   await axios.post(SLACK_WEBHOOK_URL, { text });
 }
@@ -22,32 +22,55 @@ app.post("/deskfy", async (req, res) => {
     // ------------------------------
 
     // Título
-    const title = data?.title?.trim() || "Sem título";
+    const rawTitle = data?.title || "";
+    const title = rawTitle.trim() || "Sem título";
 
     // Status
     const status = data?.status || "Sem status";
 
     // Tags
-    const tagsList =
-      Array.isArray(data?.tags) && data.tags.length > 0
-        ? data.tags.join(", ")
-        : "Nenhuma tag";
+    const tags = Array.isArray(data?.tags) ? data.tags : [];
+    const tagsList = tags.length > 0 ? tags.join(", ") : "Nenhuma tag";
 
-    // ID da tarefa (cobrindo todas as possibilidades do Deskfy)
+    // ID da tarefa
     const taskId =
       data?.id ||
       data?.taskId ||
       data?.task?.id ||
       null;
 
-    // Novo link oficial da tarefa (com ID no final)
+    // Link oficial da tarefa
     const taskUrl = taskId
       ? `https://app.deskfy.io/workflow/home?createRequest=&request=${taskId}`
       : null;
 
     // ------------------------------
-    // EVENTO: NOVA TAREFA (briefing)
+    // 🔥 FILTROS DE TÍTULO
     // ------------------------------
+
+    const lowerTitle = title.toLowerCase();
+
+    // 1. Bloquear títulos "sem título"
+    if (lowerTitle === "sem título") {
+      console.log("Ignorado: título vazio ou 'sem título'");
+      return res.status(200).json({ ignored: "sem_titulo" });
+    }
+
+    // 2. Bloquear títulos que começam com GEO SP / MG / CO
+    const blockedPrefixes = ["[geo sp]", "[geo mg]", "[geo co]"];
+    const startsWithBlockedGeo = blockedPrefixes.some((prefix) =>
+      lowerTitle.startsWith(prefix)
+    );
+
+    if (startsWithBlockedGeo) {
+      console.log("Ignorado: GEO bloqueada no título → ", title);
+      return res.status(200).json({ ignored: "geo_bloqueada" });
+    }
+
+    // ------------------------------
+    // EVENTOS
+    // ------------------------------
+
     if (event === "NEW_TASK") {
       await sendToSlack(
         [
@@ -60,9 +83,6 @@ app.post("/deskfy", async (req, res) => {
       );
     }
 
-    // ---------------------------------------
-    // EVENTO: ALTERAÇÃO EM TAREFA EXISTENTE
-    // ---------------------------------------
     if (event === "UPDATE_TASK") {
       await sendToSlack(
         [
@@ -75,9 +95,6 @@ app.post("/deskfy", async (req, res) => {
       );
     }
 
-    // ------------------------------
-    // NOVO COMENTÁRIO
-    // ------------------------------
     if (event === "NEW_TASK_COMMENT") {
       const author = data?.author?.name || "Alguém";
       const comment = data?.comment || "(comentário vazio)";
@@ -93,9 +110,6 @@ app.post("/deskfy", async (req, res) => {
       );
     }
 
-    // ------------------------------
-    // BRIEFING ATUALIZADO
-    // ------------------------------
     if (event === "UPDATE_BRIEFING") {
       await sendToSlack(
         [
