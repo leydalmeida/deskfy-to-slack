@@ -6,7 +6,7 @@ app.use(express.json());
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
-// Função helper para enviar para o Slack
+// Função helper para enviar mensagem para o Slack
 async function sendToSlack(text) {
   await axios.post(SLACK_WEBHOOK_URL, { text });
 }
@@ -18,16 +18,32 @@ app.post("/deskfy", async (req, res) => {
 
   try {
     // ------------------------------
-    // Campos comuns
+    // CAMPOS COMUNS
     // ------------------------------
+
+    // Título
     const title = data?.title?.trim() || "Sem título";
+
+    // Status
     const status = data?.status || "Sem status";
 
-    // Tags (antes era "tipo de cardápio")
+    // Tags
     const tagsList =
       Array.isArray(data?.tags) && data.tags.length > 0
         ? data.tags.join(", ")
         : "Nenhuma tag";
+
+    // Task ID (cobrir todas as possibilidades do Deskfy)
+    const taskId =
+      data?.id ||
+      data?.taskId ||
+      data?.task?.id ||
+      null;
+
+    // Link da tarefa
+    const taskUrl = taskId
+      ? `https://app.deskfy.io/tasks/${taskId}`
+      : null;
 
     // ------------------------------
     // EVENTO: NOVA TAREFA (briefing)
@@ -38,7 +54,8 @@ app.post("/deskfy", async (req, res) => {
           "🆕 *Nova tarefa criada!*",
           `*️⃣ *Título:* ${title}`,
           `📌 *Status:* ${status}`,
-          `🏷️ *Tags:* ${tagsList}`
+          `🏷️ *Tags:* ${tagsList}`,
+          taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
         ].join("\n")
       );
     }
@@ -52,7 +69,8 @@ app.post("/deskfy", async (req, res) => {
           "🔄 *Tarefa atualizada!*",
           `*️⃣ *Título:* ${title}`,
           `📌 *Novo status:* ${status}`,
-          `🏷️ *Tags:* ${tagsList}`
+          `🏷️ *Tags:* ${tagsList}`,
+          taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
         ].join("\n")
       );
     }
@@ -62,14 +80,15 @@ app.post("/deskfy", async (req, res) => {
     // ------------------------------
     if (event === "NEW_TASK_COMMENT") {
       const author = data?.author?.name || "Alguém";
-      const taskTitle = data?.taskTitle?.trim() || title || "Tarefa";
       const comment = data?.comment || "(comentário vazio)";
+      const taskTitle = data?.taskTitle?.trim() || title;
 
       await sendToSlack(
         [
           `💬 *Novo comentário em:* ${taskTitle}`,
           `👤 *Autor:* ${author}`,
-          `📝 *Comentário:* ${comment}`
+          `📝 *Comentário:* ${comment}`,
+          taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
         ].join("\n")
       );
     }
@@ -79,7 +98,11 @@ app.post("/deskfy", async (req, res) => {
     // ------------------------------
     if (event === "UPDATE_BRIEFING") {
       await sendToSlack(
-        `📝 *Briefing atualizado!*\n*️⃣ *Tarefa:* ${title}`
+        [
+          "📝 *Briefing atualizado!*",
+          `*️⃣ *Tarefa:* ${title}`,
+          taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
+        ].join("\n")
       );
     }
 
