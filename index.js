@@ -6,6 +6,9 @@ app.use(express.json());
 
 const SLACK_WEBHOOK_URL = process.env.SLACK_WEBHOOK_URL;
 
+// Guardar títulos reais por taskId
+const titleCache = {};
+
 async function sendToSlack(text) {
   await axios.post(SLACK_WEBHOOK_URL, { text });
 }
@@ -17,16 +20,8 @@ app.post("/deskfy", async (req, res) => {
 
   try {
     // ------------------------------
-    // CAMPOS PADRÃO
+    // IDENTIFICAÇÃO DA TAREFA
     // ------------------------------
-
-    const rawTitle = data?.title || data?.taskTitle || "Sem título";
-    const title = rawTitle.trim();
-
-    const status = data?.status || "Sem status";
-
-    const tags = Array.isArray(data?.tags) ? data.tags : [];
-    const tagsList = tags.length > 0 ? tags.join(", ") : "Nenhuma tag";
 
     const taskId =
       data?.id ||
@@ -34,17 +29,40 @@ app.post("/deskfy", async (req, res) => {
       data?.task?.id ||
       null;
 
+    const status = data?.status || "Sem status";
+
+    const tags = Array.isArray(data?.tags) ? data.tags : [];
+    const tagsList = tags.length > 0 ? tags.join(", ") : "Nenhuma tag";
+
     const taskUrl = taskId
       ? `https://app.deskfy.io/workflow/home?createRequest=&request=${taskId}`
       : null;
 
     // ------------------------------
-    // ❌ FILTRO NOVO (NÃO RECEBER GEO CO, GEO SP, GEO MINAS, CDD)
+    // 🔥 TÍTULO — LÓGICA COMPLETA E ROBUSTA
     // ------------------------------
 
-    const forbiddenStrings = ["geo co", "geo sp", "geo minas", "cdd"];
+    // Tenta pegar título do Deskfy
+    let rawTitle = data?.title || data?.taskTitle || "";
+
+    // Se vier título válido → salva no cache
+    if (rawTitle.trim()) {
+      titleCache[taskId] = rawTitle.trim();
+    }
+
+    // Determina título final
+    const title =
+      (rawTitle.trim() ||
+      titleCache[taskId] ||  // título já salvo de outro evento
+      (taskId ? `Tarefa ${taskId}` : "Sem título"));  // <-- USAR ID COMO TÍTULO
 
     const lowerTitle = title.toLowerCase();
+
+    // ------------------------------
+    // ❌ FILTRO DE GEO PROIBIDA
+    // ------------------------------
+
+    const forbiddenStrings = ["geo co", "geo sp", "geo mg", "cdd"];
 
     const containsForbidden = forbiddenStrings.some((txt) =>
       lowerTitle.includes(txt)
