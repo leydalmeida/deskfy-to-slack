@@ -21,8 +21,7 @@ app.post("/deskfy", async (req, res) => {
     // CAMPOS COMUNS
     // ------------------------------
 
-    // Título bruto + tratado
-    // Usa title e, se não tiver, taskTitle (comentário costuma usar taskTitle)
+    // Título: usa title e, se não tiver, taskTitle (comentário)
     const rawTitle = data?.title || data?.taskTitle || "";
     const title = rawTitle.trim() || "Sem título";
 
@@ -32,6 +31,10 @@ app.post("/deskfy", async (req, res) => {
     // Tags
     const tags = Array.isArray(data?.tags) ? data.tags : [];
     const tagsList = tags.length > 0 ? tags.join(", ") : "Nenhuma tag";
+
+    // GEOs permitidas (por TAG)
+    const allowedGeoTags = ["GEO NO", "GEO NE", "GEO RJ", "GEO SUL"];
+    const hasAllowedGeoTag = tags.some((tag) => allowedGeoTags.includes(tag));
 
     // ID da tarefa
     const taskId =
@@ -45,38 +48,8 @@ app.post("/deskfy", async (req, res) => {
       ? `https://app.deskfy.io/workflow/home?createRequest=&request=${taskId}`
       : null;
 
-    const lowerTitle = title.toLowerCase();
-
     // ------------------------------
-    // 1) BLOQUEAR "SEM TÍTULO" APENAS PARA EVENTOS DE STATUS/BRIEFING
-    //    (NÃO bloqueia comentários)
-    // ------------------------------
-    if (lowerTitle === "sem título" && event !== "NEW_TASK_COMMENT") {
-      console.log("Ignorado: título 'Sem título' para evento não-comentário");
-      return res.status(200).json({ ignored: "sem_titulo" });
-    }
-
-    // ------------------------------
-    // 2) FILTRO POR GEO NO TÍTULO (VALE PARA TODO MUNDO, INCLUSIVE COMENTÁRIO)
-    // ------------------------------
-    const allowedPrefixes = [
-      "[geo no]",
-      "[geo ne]",
-      "[geo rj]",
-      "[geo sul]"
-    ];
-
-    const startsWithAllowedGeo = allowedPrefixes.some((prefix) =>
-      lowerTitle.startsWith(prefix)
-    );
-
-    if (!startsWithAllowedGeo) {
-      console.log("Ignorado: GEO não permitida no título →", title);
-      return res.status(200).json({ ignored: "geo_nao_permitida" });
-    }
-
-    // ------------------------------
-    // 3) IGNORAR COMPLETAMENTE NEW_TASK
+    // 1) IGNORAR COMPLETAMENTE NEW_TASK
     // ------------------------------
     if (event === "NEW_TASK") {
       console.log("Ignorado: evento NEW_TASK (Nova tarefa criada)");
@@ -84,22 +57,72 @@ app.post("/deskfy", async (req, res) => {
     }
 
     // ------------------------------
-    // 4) EVENTOS QUE VAMOS ENVIAR
+    // 2) EVENTOS DE STATUS / BRIEFING
+    //    → filtram por GEO NO TÍTULO
     // ------------------------------
+    if (event === "UPDATE_TASK" || event === "UPDATE_BRIEFING") {
+      const lowerTitle = title.toLowerCase();
 
-    if (event === "UPDATE_TASK") {
-      await sendToSlack(
-        [
-          "🔄 *Tarefa atualizada!*",
-          `*️⃣ *Título:* ${title}`,
-          `📌 *Novo status:* ${status}`,
-          `🏷️ *Tags:* ${tagsList}`,
-          taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
-        ].join("\n")
+      // bloquear 'sem título' nesses eventos
+      if (lowerTitle === "sem título") {
+        console.log("Ignorado: título 'Sem título' em UPDATE_*");
+        return res.status(200).json({ ignored: "sem_titulo" });
+      }
+
+      const allowedPrefixes = [
+        "[geo no]",
+        "[geo ne]",
+        "[geo rj]",
+        "[geo sul]"
+      ];
+
+      const startsWithAllowedGeo = allowedPrefixes.some((prefix) =>
+        lowerTitle.startsWith(prefix)
       );
+
+      if (!startsWithAllowedGeo) {
+        console.log("Ignorado UPDATE_*: GEO não permitida no título →", title);
+        return res.status(200).json({ ignored: "geo_nao_permitida" });
+      }
+
+      // Se passou pelos filtros, envia:
+      if (event === "UPDATE_TASK") {
+        await sendToSlack(
+          [
+            "🔄 *Tarefa atualizada!*",
+            `*️⃣ *Título:* ${title}`,
+            `📌 *Novo status:* ${status}`,
+            `🏷️ *Tags:* ${tagsList}`,
+            taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
+          ].join("\n")
+        );
+      }
+
+      if (event === "UPDATE_BRIEFING") {
+        await sendToSlack(
+          [
+            "📝 *Briefing atualizado!*",
+            `*️⃣ *Tarefa:* ${title}`,
+            `🏷️ *Tags:* ${tagsList}`,
+            taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
+          ].join("\n")
+        );
+      }
+
+      return res.status(200).json({ ok: true });
     }
 
+    // ------------------------------
+    // 3) NEW_TASK_COMMENT
+    //    → filtra por GEO NAS TAGS, não no título
+    // ------------------------------
     if (event === "NEW_TASK_COMMENT") {
+      // Se não tiver geo permitida nas tags, ignora comentário
+      if (!hasAllowedGeoTag) {
+        console.log("Ignorado COMMENT: GEO não permitida nas tags →", tags);
+        return res.status(200).json({ ignored: "geo_tags_nao_permitida" });
+      }
+
       const author = data?.author?.name || "Alguém";
       const comment = data?.comment || "(comentário vazio)";
 
@@ -112,20 +135,13 @@ app.post("/deskfy", async (req, res) => {
           taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
         ].join("\n")
       );
+
+      return res.status(200).json({ ok: true });
     }
 
-    if (event === "UPDATE_BRIEFING") {
-      await sendToSlack(
-        [
-          "📝 *Briefing atualizado!*",
-          `*️⃣ *Tarefa:* ${title}`,
-          `🏷️ *Tags:* ${tagsList}`,
-          taskUrl ? `🔗 <${taskUrl}|Abrir tarefa>` : ""
-        ].join("\n")
-      );
-    }
-
-    res.status(200).json({ ok: true });
+    // Se for outro evento qualquer que não tratamos:
+    console.log("Evento não tratado:", event);
+    res.status(200).json({ ok: true, ignored: "evento_nao_tratado" });
   } catch (error) {
     console.error("Erro ao enviar para o Slack:", error);
     res.status(500).json({ error: "Erro ao enviar para o Slack" });
